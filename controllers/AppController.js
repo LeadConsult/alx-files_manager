@@ -1,36 +1,22 @@
-import dbClient from '../utils/db';
-import redisClient from '../utils/redis';
+#!/usr/bin/node
 
-/**
- * AppController class
- */
+const redisClient = require('../utils/redis');
+const dbClient = require('../utils/db');
+
 class AppController {
-  /**
-   * Retrieves the status of the Redis and database connections.
-   * @param {Object} request - The HTTP request object.
-   * @param {Object} response - The HTTP response object.
-   */
-  static getStatus(request, response) {
-    response.statusCode = 200;
-    response.send({
-      redis: redisClient.isAlive(),
-      db: dbClient.isAlive(),
-    });
+  static getStatus(req, res) {
+    if (redisClient.isAlive() && dbClient.isAlive()) {
+      res.json({ redis: true, db: true });
+      res.end();
+    }
   }
 
-  /**
-   * Retrieves statistics about the number of users and files in the database
-   * @param {Object} request - The HTTP request object.
-   * @param {Object} response - The HTTP response object.
-   * @returns {Promise<void>}
-   */
-  static async getStats(request, response) {
-    response.statusCode = 200;
-    response.send({
-      users: await dbClient.nbUsers(),
-      files: await dbClient.nbFiles(),
-    });
+  static async getStats(req, res) {
+    const users = await dbClient.nbUsers();
+    const files = await dbClient.nbFiles();
+    res.json({ users, files });
+    res.end();
   }
 }
 
-export default AppController;
+module.exports = AppController;
