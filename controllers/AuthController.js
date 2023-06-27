@@ -1,93 +1,78 @@
-#!/usr/bin/node
+import {
+  authenticateUser,
+  deleteSessionToken,
+  generateSessionToken,
+  getBasicAuthToken,
+  getCurrentUser,
+  getSessionToken,
+} from '../utils/auth';
 
-const { v4 } = require('uuid');
-const dbClient = require('../utils/db');
-const redisClient = require('../utils/redis');
-const { getAuthzHeader, getToken, pwdHashed } = require('../utils/utils');
-const { decodeToken, getCredentials } = require('../utils/utils');
-
+/**
+ * AuthController class
+ */
 class AuthController {
-  static async getConnect(req, res) {
-    const authzHeader = getAuthzHeader(req);
-    if (!authzHeader) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
+  /**
+   * Handles the request to authenticate a user and generate a session token.
+   * @param {Object} request - The HTTP request object.
+   * @param {Object} response - The HTTP response object.
+   * @returns {Promise<Object|void>} - The response with the generated session token or an error response.
+   */
+  static async getConnect(request, response) {
+    const { email, password } = getBasicAuthToken(request);
+    if (!email || !password) {
+      return response.status(401).json({
+        error: 'Unauthorized',
+      });
     }
-    const token = getToken(authzHeader);
-    if (!token) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
-    }
-    const decodedToken = decodeToken(token);
-    if (!decodedToken) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
-    }
-    const { email, password } = getCredentials(decodedToken);
-    const user = await dbClient.getUser(email);
+
+    const user = await authenticateUser(email, password);
     if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
+      return response.status(401).json({
+        error: 'Unauthorized',
+      });
     }
-    if (user.password !== pwdHashed(password)) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
-    }
-    const accessToken = v4();
-    await redisClient.set(`auth_${accessToken}`, user._id.toString('utf8'), 60 * 60 * 24);
-    res.json({ token: accessToken });
-    res.end();
+    const token = await generateSessionToken(user._id);
+    return response.status(200).json(token);
   }
 
-  static async getDisconnect(req, res) {
-    const token = req.headers['x-token'];
+  /**
+   * Handles the request to delete a session token.
+   * @param {Object} request - The HTTP request object.
+   * @param {Object} response - The HTTP response object.
+   * @returns {Promise<Object|void>} - The response indicating success or an error response.
+   */
+  static async getDisconnect(request, response) {
+    const token = getSessionToken(request);
     if (!token) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
+      return response.status(401).json({
+        error: 'Unauthorized',
+      });
     }
-    const id = await redisClient.get(`auth_${token}`);
-    if (!id) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
+
+    const result = await deleteSessionToken(token);
+    if (!result) {
+      return response.status(401).json({
+        error: 'Unauthorized',
+      });
     }
-    const user = await dbClient.getUserById(id);
-    if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
-    }
-    await redisClient.del(`auth_${token}`);
-    res.status(204).end();
+    return response.sendStatus(204);
   }
 
-  static async getMe(req, res) {
-    const token = req.headers['x-token'];
-    if (!token) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
+  /**
+   * Handles the request to get the current user.
+   * @param {Object} request - The HTTP request object.
+   * @param {Object} response - The HTTP response object.
+   * @returns {Promise<Object|void>} - The response with the current user or an error response.
+   */
+  static async getMe(request, response) {
+    const currentUser = await getCurrentUser(request);
+    if (!currentUser) {
+      return response.status(401).json({
+        error: 'Unauthorized',
+      });
     }
-    const id = await redisClient.get(`auth_${token}`);
-    if (!id) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
-    }
-    const user = await dbClient.getUserById(id);
-    if (!user) {
-      res.status(401).json({ error: 'Unauthorized' });
-      res.end();
-      return;
-    }
-    res.json({ id: user._id, email: user.email }).end();
+    return response.status(200).json(currentUser);
   }
 }
 
-module.exports = AuthController;
+export default AuthController;
